@@ -1,0 +1,5 @@
+# Worktrees created by setup script
+.worktrees/
+
+# Coordination files created by setup script
+.claude-coordination/
