@@ -273,13 +273,15 @@
         "claudeAgents.terminalType": {
           "type": "string",
           "enum": [
+            "bash",
             "wsl",
             "powershell",
             "cmd",
             "gitbash"
           ],
-          "default": "wsl",
+          "default": "bash",
           "enumDescriptions": [
+            "Bash (macOS/Linux) - Native shell, uses Unix paths",
             "WSL (Windows Subsystem for Linux) - Uses /mnt/c/... paths",
             "PowerShell - Uses Windows paths with backslashes",
             "Command Prompt (CMD) - Uses Windows paths with backslashes",
