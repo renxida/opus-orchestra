@@ -59,7 +59,8 @@ export class AgentPath {
             .get<string>('terminalType', 'wsl');
 
         if (!this.drive) {
-            return this.restPath;
+            // Unix path without drive letter (macOS/Linux) - return as-is
+            return this.restPath.startsWith('/') ? this.restPath : `/${this.restPath}`;
         }
 
         switch (terminalType) {
@@ -67,6 +68,9 @@ export class AgentPath {
                 return `/mnt/${this.drive}/${this.restPath}`;
             case 'gitbash':
                 return `/${this.drive}/${this.restPath}`;
+            case 'bash':
+                // Native bash (macOS/Linux) - shouldn't have drive letters, but handle gracefully
+                return `/${this.restPath}`;
             case 'powershell':
             case 'cmd':
                 return `${this.drive.toUpperCase()}:\\${this.restPath.replace(/\//g, '\\')}`;

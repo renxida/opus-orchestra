@@ -11,7 +11,7 @@ const SETTINGS_KEYS: Record<string, any> = {
     worktreeDirectory: '.worktrees',
     coordinationScriptsPath: '',
     backlogPath: '',
-    terminalType: 'wsl'
+    terminalType: 'bash'
 };
 
 export class SettingsPanel {
@@ -340,6 +340,7 @@ export class SettingsPanel {
             <label class="setting-label">Terminal Type</label>
             <div class="setting-description">Select which terminal/shell to use for running git commands. This affects path formatting.</div>
             <select id="terminalType">
+                <option value="bash">Bash (macOS/Linux) - Native shell</option>
                 <option value="wsl">WSL (Windows Subsystem for Linux) - /mnt/c/... paths</option>
                 <option value="gitbash">Git Bash - /c/... paths</option>
                 <option value="powershell">PowerShell - C:\\ paths</option>
@@ -401,7 +402,7 @@ export class SettingsPanel {
             worktreeDirectory: { type: 'text', default: '.worktrees' },
             coordinationScriptsPath: { type: 'text', default: '' },
             backlogPath: { type: 'text', default: '' },
-            terminalType: { type: 'select', default: 'wsl' }
+            terminalType: { type: 'select', default: 'bash' }
         };
 
         window.addEventListener('message', event => {

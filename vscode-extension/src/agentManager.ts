@@ -39,7 +39,7 @@ export interface PendingApproval {
     timestamp: Date;
 }
 
-type TerminalType = 'wsl' | 'powershell' | 'cmd' | 'gitbash';
+type TerminalType = 'wsl' | 'powershell' | 'cmd' | 'gitbash' | 'bash';
 
 export class AgentManager {
     private agents: Map<number, Agent> = new Map();
@@ -195,6 +195,10 @@ export class AgentManager {
                 const gitBashCmd = `"C:\\Program Files\\Git\\bin\\bash.exe" -c "cd '${terminalPath}' && ${command.replace(/'/g, "'\\''")}"`;
                 return execSync(gitBashCmd, { encoding: 'utf-8' });
 
+            case 'bash':
+                // Run directly with bash (macOS/Linux)
+                return execSync(command, { cwd: terminalPath, encoding: 'utf-8', shell: '/bin/bash' });
+
             case 'powershell':
             case 'cmd':
             default:
@@ -217,6 +221,10 @@ export class AgentManager {
 
                 case 'gitbash':
                     execSync(`"C:\\Program Files\\Git\\bin\\bash.exe" -c "cd '${terminalPath}' && ${command.replace(/'/g, "'\\''")}"`, { stdio: 'ignore' });
+                    break;
+
+                case 'bash':
+                    execSync(command, { cwd: terminalPath, stdio: 'ignore', shell: '/bin/bash' });
                     break;
 
                 case 'powershell':
@@ -791,6 +799,8 @@ export class AgentManager {
             const terminalPath = this.toTerminalPath(cwd);
 
             let fullCommand: string;
+            let execOptions: { cwd?: string; encoding: 'utf-8'; shell?: string } = { encoding: 'utf-8' };
+
             switch (terminalType) {
                 case 'wsl':
                     const escapedCmd = command.replace(/'/g, "'\\''");
@@ -799,14 +809,20 @@ export class AgentManager {
                 case 'gitbash':
                     fullCommand = `"C:\\Program Files\\Git\\bin\\bash.exe" -c "cd '${terminalPath}' && ${command.replace(/'/g, "'\\''")}"`;
                     break;
+                case 'bash':
+                    fullCommand = command;
+                    execOptions.cwd = terminalPath;
+                    execOptions.shell = '/bin/bash';
+                    break;
                 case 'powershell':
                 case 'cmd':
                 default:
                     fullCommand = command;
+                    execOptions.cwd = terminalPath;
                     break;
             }
 
-            exec(fullCommand, { cwd: terminalType === 'powershell' || terminalType === 'cmd' ? terminalPath : undefined, encoding: 'utf-8' }, (error, stdout) => {
+            exec(fullCommand, execOptions, (error, stdout) => {
                 if (error) {
                     reject(error);
                 } else {
