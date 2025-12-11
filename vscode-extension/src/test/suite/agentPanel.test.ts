@@ -89,7 +89,7 @@ suite('AgentPanel HTML Test Suite', () => {
         assert.ok(cardMethodStart !== -1, '_getAgentCard method should exist');
 
         // Find the method's content (look for the closing of the template literal)
-        const methodEnd = content.indexOf("    }\n\n    private _formatTimeSince", cardMethodStart);
+        const methodEnd = content.indexOf("    }\n\n    private _escapeHtml", cardMethodStart);
         const cardHtml = content.substring(cardMethodStart, methodEnd);
 
         // Required buttons that should be in every agent card
@@ -152,7 +152,7 @@ suite('AgentPanel HTML Test Suite', () => {
         const cardMethodStart = content.indexOf('private _getAgentCard(');
         assert.ok(cardMethodStart !== -1, '_getAgentCard method should exist');
 
-        const methodEnd = content.indexOf("    }\n\n    private _formatTimeSince", cardMethodStart);
+        const methodEnd = content.indexOf("    }\n\n    private _escapeHtml", cardMethodStart);
         const cardHtml = content.substring(cardMethodStart, methodEnd);
 
         // Check for inline rename input with required attributes
