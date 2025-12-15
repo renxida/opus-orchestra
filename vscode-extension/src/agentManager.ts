@@ -27,6 +27,7 @@ import {
     isLoggerInitialized,
     getTerminalIcon,
     getPersistenceService,
+    getTmuxService,
 } from './services';
 
 // Re-export types for backward compatibility
@@ -236,7 +237,7 @@ export class AgentManager {
                             existingIds.add(agent.id);
                             restoredCount++;
 
-                            this.createTerminalForAgent(agent, agent.sessionStarted);
+                            this.createTerminalForAgent(agent);
                             getEventBus().emit('agent:created', { agent });
 
                             nextId++;
@@ -320,6 +321,18 @@ export class AgentManager {
         const agent = this.agents.get(agentId);
         if (!agent) {
             return false;
+        }
+
+        // Clean up tmux session if enabled
+        if (getConfigService().useTmux) {
+            const tmuxService = getTmuxService();
+            const sessionName = tmuxService.getSessionName(agent);
+
+            if (agent.containerInfo?.id) {
+                tmuxService.killContainerSession(agent.containerInfo.id, sessionName);
+            } else {
+                tmuxService.killSession(sessionName);
+            }
         }
 
         if (agent.terminal) {
@@ -410,7 +423,20 @@ export class AgentManager {
     }
 
     async cleanup(): Promise<void> {
+        const config = getConfigService();
+        const tmuxService = config.useTmux ? getTmuxService() : null;
+
         for (const agent of this.agents.values()) {
+            // Clean up tmux session if enabled
+            if (tmuxService) {
+                const sessionName = tmuxService.getSessionName(agent);
+                if (agent.containerInfo?.id) {
+                    tmuxService.killContainerSession(agent.containerInfo.id, sessionName);
+                } else {
+                    tmuxService.killSession(sessionName);
+                }
+            }
+
             if (agent.terminal) {
                 agent.terminal.dispose();
             }
@@ -491,38 +517,68 @@ export class AgentManager {
     // Terminal Management
     // ========================================================================
 
-    private createTerminalForAgent(agent: Agent, resumeSession: boolean = false): void {
+    private createTerminalForAgent(agent: Agent): void {
         const config = getConfigService();
         const terminalService = getTerminalService();
 
-        const terminal = terminalService.createAgentTerminal(
-            agent.name,
-            agent.worktreePath,
-            agent.isolationTier,
-            {
-                autoStartClaude: config.autoStartClaude,
-                claudeCommand: config.claudeCommand,
-                sessionId: agent.sessionId,
-                resumeSession,
-                containerId: agent.containerInfo?.id,
-            }
-        );
+        if (config.useTmux) {
+            // Tmux mode: create terminal with tmux as shell, then send Claude command
+            const tmuxService = getTmuxService();
+            const sessionName = tmuxService.getSessionName(agent);
+            const isNewSession = !tmuxService.sessionExists(sessionName);
 
-        agent.terminal = terminal;
+            // Create VS Code terminal that creates/attaches to tmux session
+            agent.terminal = terminalService.createTerminal({
+                name: agent.name,
+                iconPath: getTerminalIcon(agent.isolationTier),
+                shellPath: 'tmux',
+                shellArgs: ['new-session', '-A', '-s', sessionName, '-c', agent.worktreePath],
+            });
+
+            // Start Claude in new sessions
+            if (isNewSession) {
+                const claudeCmd = `${config.claudeCommand} --session-id "${agent.sessionId}"`;
+                agent.terminal.processId.then(() => {
+                    setTimeout(() => {
+                        agent.terminal?.sendText(claudeCmd);
+                    }, 200);
+                });
+                agent.status = 'waiting-input';
+                this.statusTracker.updateAgentIcon(agent);
+            }
+        } else {
+            // Non-tmux mode: use createAgentTerminal which handles Claude auto-start
+            agent.terminal = terminalService.createAgentTerminal(
+                agent.name,
+                agent.worktreePath,
+                agent.isolationTier,
+                {
+                    autoStartClaude: config.autoStartClaude,
+                    claudeCommand: config.claudeCommand,
+                    sessionId: agent.sessionId,
+                    resumeSession: false,
+                    containerId: agent.containerInfo?.id,
+                }
+            );
+        }
     }
 
-    private ensureTerminalExists(agent: Agent): void {
+    /**
+     * Ensure terminal exists for an agent, creating one if necessary.
+     * @returns true if a new terminal was created, false if existing terminal was found
+     */
+    private ensureTerminalExists(agent: Agent): boolean {
         const terminalService = getTerminalService();
 
         if (agent.terminal && terminalService.isTerminalAlive(agent.terminal)) {
-            return;
+            return false;
         }
         agent.terminal = null;
 
         const existingTerminal = terminalService.findTerminalByName(agent.name);
         if (existingTerminal) {
             agent.terminal = existingTerminal;
-            return;
+            return false;
         }
 
         agent.terminal = terminalService.createTerminal({
@@ -530,6 +586,9 @@ export class AgentManager {
             cwd: agent.worktreePath,
             iconPath: getTerminalIcon(agent.isolationTier),
         });
+
+        getEventBus().emit('agent:terminalCreated', { agent, isNew: true });
+        return true;
     }
 
     async startClaudeInAgent(agentId: number): Promise<void> {
@@ -557,18 +616,82 @@ export class AgentManager {
         this.statusTracker.updateAgentIcon(agent);
     }
 
-    focusAgent(agentId: number): void {
+    /**
+     * Focus an agent's terminal, creating it if necessary.
+     * With tmux enabled: creates terminal with tmux as shell (attaches or creates session).
+     * Without tmux: uses regular terminal with optional Claude auto-start.
+     */
+    async focusAgent(agentId: number): Promise<void> {
         const agent = this.agents.get(agentId);
         if (!agent) {
             vscode.window.showWarningMessage(`Agent ${agentId} not found`);
             return;
         }
 
-        this.ensureTerminalExists(agent);
+        const config = getConfigService();
+        const terminalService = getTerminalService();
 
-        if (agent.terminal) {
+        // Check if terminal already exists and is alive
+        if (agent.terminal && terminalService.isTerminalAlive(agent.terminal)) {
             agent.terminal.show(true);
+            this.debugLog(`focusAgent: showing existing terminal for ${agent.name}`);
+            return;
         }
+
+        // Try to find terminal by name (may have been reconnected after reload)
+        const existingTerminal = terminalService.findTerminalByName(agent.name);
+        if (existingTerminal) {
+            agent.terminal = existingTerminal;
+            agent.terminal.show(true);
+            this.debugLog(`focusAgent: reconnected to terminal ${agent.name}`);
+            return;
+        }
+
+        // Need to create a new terminal
+        if (config.useTmux) {
+            // Tmux mode: create terminal with tmux, then send Claude command once ready
+            const tmuxService = getTmuxService();
+            const sessionName = tmuxService.getSessionName(agent);
+            const isNewSession = !tmuxService.sessionExists(sessionName);
+
+            this.debugLog(`focusAgent: creating tmux terminal, session=${sessionName}, isNewSession=${isNewSession}`);
+
+            // Create VS Code terminal that creates/attaches to tmux session
+            agent.terminal = terminalService.createTerminal({
+                name: agent.name,
+                iconPath: getTerminalIcon(agent.isolationTier),
+                shellPath: 'tmux',
+                shellArgs: ['new-session', '-A', '-s', sessionName, '-c', agent.worktreePath],
+            });
+
+            // Wait for terminal process to be ready, then send Claude command
+            if (isNewSession) {
+                const claudeCmd = `${config.claudeCommand} --resume "${agent.sessionId}"`;
+                agent.terminal.processId.then(() => {
+                    setTimeout(() => {
+                        agent.terminal?.sendText(claudeCmd);
+                    }, 200);
+                });
+                agent.status = 'waiting-input';
+                this.statusTracker.updateAgentIcon(agent);
+            }
+        } else {
+            // Non-tmux mode: create regular terminal
+            agent.terminal = terminalService.createTerminal({
+                name: agent.name,
+                cwd: agent.worktreePath,
+                iconPath: getTerminalIcon(agent.isolationTier),
+            });
+
+            if (config.autoStartClaudeOnFocus) {
+                setTimeout(() => {
+                    this.startClaudeInAgent(agentId);
+                }, 500);
+            }
+        }
+
+        agent.terminal.show(true);
+        getEventBus().emit('agent:terminalCreated', { agent, isNew: true });
     }
 
     sendToAgent(agentId: number, text: string): void {
