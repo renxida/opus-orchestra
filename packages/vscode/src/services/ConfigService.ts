@@ -1,37 +1,65 @@
 /**
  * ConfigService - Type-safe configuration access
  *
- * Provides centralized, type-safe access to VS Code configuration
- * with proper defaults and validation.
+ * Provides convenience getters for VS Code configuration.
+ * Delegates to ServiceContainer's VSCodeConfigAdapter when available.
+ *
+ * This is a facade that adds ergonomic property access on top of
+ * the core ConfigAdapter interface.
  */
 
-import * as vscode from 'vscode';
 import {
     ExtensionConfig,
-    DEFAULT_CONFIG,
-    CONFIG_SECTION,
     TerminalType,
-} from '../types';
+    ConfigAdapter,
+} from '@opus-orchestra/core';
 import { LogLevel } from './Logger';
+import { VSCodeConfigAdapter } from '../adapters';
 
 // Re-export LogLevel for convenience
 export { LogLevel };
 
 /**
- * Type-safe configuration service
+ * Type-safe configuration service with convenience getters.
+ * Delegates to ConfigAdapter for actual config access.
  */
 export class ConfigService {
-    private config: vscode.WorkspaceConfiguration;
+    private _adapter: ConfigAdapter | null = null;
 
-    constructor() {
-        this.config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    /**
+     * Get the underlying config adapter.
+     * Uses ServiceContainer when available, falls back to local adapter.
+     */
+    private get adapter(): ConfigAdapter {
+        if (this._adapter) {
+            return this._adapter;
+        }
+
+        // Try to use ServiceContainer's adapter
+        try {
+            // Dynamic import to avoid circular dependency
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+            if (isContainerInitialized()) {
+                const containerConfig = getContainer().config as ConfigAdapter;
+                this._adapter = containerConfig;
+                return containerConfig;
+            }
+        } catch {
+            // ServiceContainer not available yet
+        }
+
+        // Fall back to creating a local adapter
+        const localAdapter = new VSCodeConfigAdapter();
+        this._adapter = localAdapter;
+        return localAdapter;
     }
 
     /**
      * Refresh the configuration (call after settings change)
      */
     refresh(): void {
-        this.config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        this.adapter.refresh();
     }
 
     // ========================================================================
@@ -39,19 +67,19 @@ export class ConfigService {
     // ========================================================================
 
     get defaultAgentCount(): number {
-        return this.config.get<number>('defaultAgentCount', DEFAULT_CONFIG.defaultAgentCount);
+        return this.adapter.get('defaultAgentCount');
     }
 
     get autoStartClaude(): boolean {
-        return this.config.get<boolean>('autoStartClaude', DEFAULT_CONFIG.autoStartClaude);
+        return this.adapter.get('autoStartClaude');
     }
 
     get autoStartClaudeOnFocus(): boolean {
-        return this.config.get<boolean>('autoStartClaudeOnFocus', DEFAULT_CONFIG.autoStartClaudeOnFocus);
+        return this.adapter.get('autoStartClaudeOnFocus');
     }
 
     get claudeCommand(): string {
-        return this.config.get<string>('claudeCommand', DEFAULT_CONFIG.claudeCommand);
+        return this.adapter.get('claudeCommand');
     }
 
     // ========================================================================
@@ -59,11 +87,11 @@ export class ConfigService {
     // ========================================================================
 
     get useTmux(): boolean {
-        return this.config.get<boolean>('useTmux', DEFAULT_CONFIG.useTmux);
+        return this.adapter.get('useTmux');
     }
 
     get tmuxSessionPrefix(): string {
-        return this.config.get<string>('tmuxSessionPrefix', DEFAULT_CONFIG.tmuxSessionPrefix);
+        return this.adapter.get('tmuxSessionPrefix');
     }
 
     // ========================================================================
@@ -71,19 +99,19 @@ export class ConfigService {
     // ========================================================================
 
     get worktreeDirectory(): string {
-        return this.config.get<string>('worktreeDirectory', DEFAULT_CONFIG.worktreeDirectory);
+        return this.adapter.get('worktreeDirectory');
     }
 
     get coordinationScriptsPath(): string {
-        return this.config.get<string>('coordinationScriptsPath', DEFAULT_CONFIG.coordinationScriptsPath);
+        return this.adapter.get('coordinationScriptsPath');
     }
 
     get backlogPath(): string {
-        return this.config.get<string>('backlogPath', DEFAULT_CONFIG.backlogPath);
+        return this.adapter.get('backlogPath');
     }
 
     get repositoryPaths(): string[] {
-        return this.config.get<string[]>('repositoryPaths', DEFAULT_CONFIG.repositoryPaths);
+        return this.adapter.get('repositoryPaths');
     }
 
     // ========================================================================
@@ -91,7 +119,7 @@ export class ConfigService {
     // ========================================================================
 
     get terminalType(): TerminalType {
-        return this.config.get<TerminalType>('terminalType', DEFAULT_CONFIG.terminalType);
+        return this.adapter.get('terminalType');
     }
 
     // ========================================================================
@@ -99,7 +127,7 @@ export class ConfigService {
     // ========================================================================
 
     get logLevel(): LogLevel {
-        return this.config.get<LogLevel>('logLevel', 'debug');
+        return this.adapter.get('logLevel');
     }
 
     // ========================================================================
@@ -107,7 +135,7 @@ export class ConfigService {
     // ========================================================================
 
     get diffPollingInterval(): number {
-        return this.config.get<number>('diffPollingInterval', DEFAULT_CONFIG.diffPollingInterval);
+        return this.adapter.get('diffPollingInterval');
     }
 
     // ========================================================================
@@ -115,27 +143,27 @@ export class ConfigService {
     // ========================================================================
 
     get containerImage(): string {
-        return this.config.get<string>('containerImage', DEFAULT_CONFIG.containerImage);
+        return this.adapter.get('containerImage');
     }
 
     get containerMemoryLimit(): string {
-        return this.config.get<string>('containerMemoryLimit', DEFAULT_CONFIG.containerMemoryLimit);
+        return this.adapter.get('containerMemoryLimit');
     }
 
     get containerCpuLimit(): string {
-        return this.config.get<string>('containerCpuLimit', DEFAULT_CONFIG.containerCpuLimit);
+        return this.adapter.get('containerCpuLimit');
     }
 
     get cloudHypervisorPath(): string {
-        return this.config.get<string>('cloudHypervisorPath', DEFAULT_CONFIG.cloudHypervisorPath);
+        return this.adapter.get('cloudHypervisorPath');
     }
 
     get containerPidsLimit(): number {
-        return this.config.get<number>('containerPidsLimit', DEFAULT_CONFIG.containerPidsLimit);
+        return this.adapter.get('containerPidsLimit');
     }
 
     get gvisorEnabled(): boolean {
-        return this.config.get<boolean>('gvisorEnabled', DEFAULT_CONFIG.gvisorEnabled);
+        return this.adapter.get('gvisorEnabled');
     }
 
     // ========================================================================
@@ -143,15 +171,15 @@ export class ConfigService {
     // ========================================================================
 
     get isolationTier(): string {
-        return this.config.get<string>('isolationTier', DEFAULT_CONFIG.isolationTier);
+        return this.adapter.get('isolationTier');
     }
 
     get allowedDomains(): string[] {
-        return this.config.get<string[]>('allowedDomains', DEFAULT_CONFIG.allowedDomains);
+        return this.adapter.get('allowedDomains');
     }
 
     get proxyPort(): number {
-        return this.config.get<number>('proxyPort', DEFAULT_CONFIG.proxyPort);
+        return this.adapter.get('proxyPort');
     }
 
     // ========================================================================
@@ -159,7 +187,7 @@ export class ConfigService {
     // ========================================================================
 
     get showAllPermissionOptions(): boolean {
-        return this.config.get<boolean>('showAllPermissionOptions', DEFAULT_CONFIG.showAllPermissionOptions);
+        return this.adapter.get('showAllPermissionOptions');
     }
 
     // ========================================================================
@@ -167,7 +195,7 @@ export class ConfigService {
     // ========================================================================
 
     get uiScale(): number {
-        return this.config.get<number>('uiScale', DEFAULT_CONFIG.uiScale);
+        return this.adapter.get('uiScale');
     }
 
     // ========================================================================
@@ -175,7 +203,7 @@ export class ConfigService {
     // ========================================================================
 
     get autoSwitchToApiOnRateLimit(): boolean {
-        return this.config.get<boolean>('autoSwitchToApiOnRateLimit', DEFAULT_CONFIG.autoSwitchToApiOnRateLimit);
+        return this.adapter.get('autoSwitchToApiOnRateLimit');
     }
 
     // ========================================================================
@@ -186,33 +214,7 @@ export class ConfigService {
      * Get all configuration as a single object
      */
     getAll(): ExtensionConfig {
-        return {
-            defaultAgentCount: this.defaultAgentCount,
-            autoStartClaude: this.autoStartClaude,
-            autoStartClaudeOnFocus: this.autoStartClaudeOnFocus,
-            claudeCommand: this.claudeCommand,
-            useTmux: this.useTmux,
-            tmuxSessionPrefix: this.tmuxSessionPrefix,
-            worktreeDirectory: this.worktreeDirectory,
-            coordinationScriptsPath: this.coordinationScriptsPath,
-            backlogPath: this.backlogPath,
-            repositoryPaths: this.repositoryPaths,
-            terminalType: this.terminalType,
-            diffPollingInterval: this.diffPollingInterval,
-            containerImage: this.containerImage,
-            containerMemoryLimit: this.containerMemoryLimit,
-            containerCpuLimit: this.containerCpuLimit,
-            containerPidsLimit: this.containerPidsLimit,
-            gvisorEnabled: this.gvisorEnabled,
-            cloudHypervisorPath: this.cloudHypervisorPath,
-            isolationTier: this.isolationTier,
-            allowedDomains: this.allowedDomains,
-            proxyPort: this.proxyPort,
-            showAllPermissionOptions: this.showAllPermissionOptions,
-            uiScale: this.uiScale,
-            logLevel: this.logLevel,
-            autoSwitchToApiOnRateLimit: this.autoSwitchToApiOnRateLimit,
-        };
+        return this.adapter.getAll();
     }
 
     /**
@@ -220,23 +222,9 @@ export class ConfigService {
      */
     async update<K extends keyof ExtensionConfig>(
         key: K,
-        value: ExtensionConfig[K],
-        target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global
+        value: ExtensionConfig[K]
     ): Promise<void> {
-        await this.config.update(key, value, target);
-        this.refresh();
-    }
-
-    /**
-     * Check if a configuration key has been explicitly set
-     */
-    hasValue(key: keyof ExtensionConfig): boolean {
-        const inspection = this.config.inspect(key);
-        return inspection !== undefined && (
-            inspection.globalValue !== undefined ||
-            inspection.workspaceValue !== undefined ||
-            inspection.workspaceFolderValue !== undefined
-        );
+        await this.adapter.update(key, value);
     }
 }
 

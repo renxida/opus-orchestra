@@ -96,14 +96,28 @@ export class EventBus implements IEventBus {
 }
 
 /**
- * Singleton instance
+ * Singleton instance (fallback when ServiceContainer not available)
  */
 let eventBusInstance: EventBus | null = null;
 
 /**
- * Get the global EventBus instance
+ * Get the global EventBus instance.
+ * Uses ServiceContainer's eventBus when available.
  */
-export function getEventBus(): EventBus {
+export function getEventBus(): IEventBus {
+    // Try to use ServiceContainer's eventBus first (it's the canonical instance)
+    try {
+        // Dynamic import to avoid circular dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return getContainer().eventBus;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
+
+    // Fall back to local singleton
     if (!eventBusInstance) {
         eventBusInstance = new EventBus();
     }

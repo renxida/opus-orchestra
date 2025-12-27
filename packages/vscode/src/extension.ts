@@ -6,9 +6,8 @@ import { BacklogTreeProvider } from './backlogTreeView';
 import { StatusBarManager } from './statusBar';
 import { AgentPanel } from './agentPanel';
 import { SettingsPanel } from './settingsPanel';
-import { initLogger, initPersistenceService, getStatusWatcher, getConfigService } from './services';
+import { initPersistenceService, getStatusWatcher } from './services';
 import { initializeContainer, disposeContainer } from './ServiceContainer';
-import { TerminalType } from '@opus-orchestra/core';
 
 let agentManager: AgentManager;
 let agentTreeProvider: AgentTreeProvider;
@@ -17,21 +16,18 @@ let backlogTreeProvider: BacklogTreeProvider;
 let statusBarManager: StatusBarManager;
 
 export function activate(context: vscode.ExtensionContext) {
-    // Initialize services (legacy singletons)
-    const configService = getConfigService();
-    const logger = initLogger(context.extensionPath, configService.logLevel);
-    logger.info('Extension activating', { logLevel: configService.logLevel });
+    // Initialize the DI container first - it creates all core services
+    const container = initializeContainer(context.extensionPath, context);
+    const logger = container.logger;
+    const logLevel = container.config.get('logLevel');
+    logger.info('Extension activating', { logLevel });
 
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     logger.debug('Workspace root', { workspaceRoot });
 
+    // Initialize persistence service (VSCode-specific, uses vscode.ExtensionContext)
     const persistenceService = initPersistenceService(workspaceRoot);
     persistenceService.setContext(context);
-
-    // Initialize the new DI container (for gradual migration)
-    const terminalType = configService.terminalType as TerminalType;
-    const container = initializeContainer(context.extensionPath, terminalType, context);
-    logger.info('ServiceContainer initialized');
 
     // Initialize managers
     agentManager = new AgentManager(context.extensionPath);

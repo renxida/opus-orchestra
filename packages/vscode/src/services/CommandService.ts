@@ -1,129 +1,87 @@
 /**
  * CommandService - Command execution with terminal type support
  *
- * Provides a unified interface for executing shell commands across
- * different terminal environments (WSL, Git Bash, PowerShell, etc.)
+ * Delegates to ServiceContainer's SystemAdapter for actual execution.
+ * This is a facade that provides a familiar API for legacy code.
+ *
+ * Note: New code should use getContainer().system directly.
  */
 
-import { execSync, exec } from 'child_process';
-import * as os from 'os';
-import { agentPath } from '../pathUtils';
-import { TerminalType, GIT_BASH_PATH } from '../types';
+import { SystemAdapter, TerminalType } from '@opus-orchestra/core';
+import { NodeSystemAdapter } from '@opus-orchestra/core';
 import { getConfigService } from './ConfigService';
 
 /**
- * Command configuration for execution
- */
-interface CommandConfig {
-    /** Full command to execute (may wrap the original) */
-    command: string;
-    /** Working directory for native execution */
-    cwd?: string;
-    /** Shell to use for native execution */
-    shell?: string;
-}
-
-/**
- * Command execution service
+ * Command execution service - delegates to SystemAdapter
  */
 export class CommandService {
-    private terminalType: TerminalType;
-
-    constructor(terminalType?: TerminalType) {
-        this.terminalType = terminalType ?? getConfigService().terminalType;
-    }
+    private _system: SystemAdapter | null = null;
 
     /**
-     * Build command configuration based on terminal type.
-     * Centralizes the terminal-type-specific command wrapping logic.
+     * Get the underlying system adapter.
+     * Uses ServiceContainer when available, falls back to local adapter.
      */
-    private buildCommandConfig(command: string, cwd: string): CommandConfig {
-        const terminalPath = agentPath(cwd).forTerminal();
-
-        // On Linux (e.g., WSL VS Code), execute directly
-        if (os.platform() !== 'win32') {
-            return { command, cwd: terminalPath, shell: '/bin/bash' };
+    private get system(): SystemAdapter {
+        if (this._system) {
+            return this._system;
         }
 
-        // On Windows, use the configured terminal type
-        switch (this.terminalType) {
-            case 'wsl': {
-                const escapedCmd = command.replace(/'/g, "'\\''");
-                return { command: `wsl bash -c "cd '${terminalPath}' && ${escapedCmd}"` };
+        // Try to use ServiceContainer's adapter
+        try {
+            // Dynamic import to avoid circular dependency
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+            if (isContainerInitialized()) {
+                const containerSystem = getContainer().system as SystemAdapter;
+                this._system = containerSystem;
+                return containerSystem;
             }
-            case 'gitbash': {
-                const escapedCmd = command.replace(/'/g, "'\\''");
-                return { command: `"${GIT_BASH_PATH}" -c "cd '${terminalPath}' && ${escapedCmd}"` };
-            }
-            case 'bash':
-                return { command, cwd: terminalPath, shell: '/bin/bash' };
-            case 'powershell':
-            case 'cmd':
-            default:
-                return { command, cwd: terminalPath };
+        } catch {
+            // ServiceContainer not available yet
         }
+
+        // Fall back to creating a local adapter
+        const terminalType = getConfigService().terminalType;
+        const localSystem = new NodeSystemAdapter(terminalType);
+        this._system = localSystem;
+        return localSystem;
     }
 
     /**
      * Execute a command synchronously
      */
     exec(command: string, cwd: string): string {
-        const config = this.buildCommandConfig(command, cwd);
-        return execSync(config.command, {
-            cwd: config.cwd,
-            encoding: 'utf-8',
-            shell: config.shell,
-        });
+        return this.system.execSync(command, cwd);
     }
 
     /**
      * Execute a command asynchronously
      */
     execAsync(command: string, cwd: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const config = this.buildCommandConfig(command, cwd);
-            exec(config.command, {
-                cwd: config.cwd,
-                encoding: 'utf-8',
-                shell: config.shell,
-            }, (error, stdout, _stderr) => {
-                if (error) {
-                    reject(error);
-                } else {
-                    resolve(stdout);
-                }
-            });
-        });
+        return this.system.exec(command, cwd);
     }
 
     /**
      * Execute a command silently (ignore errors and output)
      */
     execSilent(command: string, cwd: string): void {
-        try {
-            const config = this.buildCommandConfig(command, cwd);
-            execSync(config.command, {
-                cwd: config.cwd,
-                stdio: 'ignore',
-                shell: config.shell,
-            });
-        } catch {
-            // Silently ignore errors
-        }
+        this.system.execSilent(command, cwd);
     }
 
     /**
      * Get the current terminal type
      */
     getTerminalType(): TerminalType {
-        return this.terminalType;
+        return this.system.getTerminalType();
     }
 
     /**
      * Set the terminal type
      */
     setTerminalType(type: TerminalType): void {
-        this.terminalType = type;
+        if (this.system instanceof NodeSystemAdapter) {
+            this.system.setTerminalType(type);
+        }
     }
 }
 

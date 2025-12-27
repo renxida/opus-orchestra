@@ -10,7 +10,6 @@ import {
   // Adapters
   NodeSystemAdapter,
   SystemAdapter,
-  TerminalType,
 
   // Services
   Logger,
@@ -93,11 +92,14 @@ export class ServiceContainer {
   // Extension context (needed for VS Code specific operations)
   private _context: vscode.ExtensionContext | null = null;
 
-  constructor(extensionPath: string, terminalType: TerminalType) {
-    // 1. Create adapters
+  constructor(extensionPath: string) {
+    // 1. Create config adapter first (needed to read settings)
+    this.config = new VSCodeConfigAdapter();
+
+    // 2. Create other adapters using config values
+    const terminalType = this.config.get('terminalType');
     this.system = new NodeSystemAdapter(terminalType);
     this.storage = new VSCodeStorageAdapter();
-    this.config = new VSCodeConfigAdapter();
     this.ui = new VSCodeUIAdapter();
     this.terminal = new VSCodeTerminalAdapter(this.system);
 
@@ -193,14 +195,13 @@ let containerInstance: ServiceContainer | null = null;
  */
 export function initializeContainer(
   extensionPath: string,
-  terminalType: TerminalType,
   context: vscode.ExtensionContext
 ): ServiceContainer {
   if (containerInstance) {
     containerInstance.dispose();
   }
 
-  containerInstance = new ServiceContainer(extensionPath, terminalType);
+  containerInstance = new ServiceContainer(extensionPath);
   containerInstance.initialize(context);
 
   return containerInstance;
