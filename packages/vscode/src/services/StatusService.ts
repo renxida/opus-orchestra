@@ -184,14 +184,28 @@ export class StatusService implements IStatusService {
 }
 
 /**
- * Singleton instance
+ * Singleton instance (fallback when ServiceContainer not available)
  */
 let statusServiceInstance: StatusService | null = null;
 
 /**
- * Get the global StatusService instance
+ * Get the global StatusService instance.
+ * Uses ServiceContainer's statusService when available.
  */
-export function getStatusService(): StatusService {
+export function getStatusService(): IStatusService {
+    // Try to use ServiceContainer's statusService first (it's the canonical instance)
+    try {
+        // Dynamic import to avoid circular dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return getContainer().statusService;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
+
+    // Fall back to local singleton
     if (!statusServiceInstance) {
         statusServiceInstance = new StatusService();
     }

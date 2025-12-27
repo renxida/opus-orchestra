@@ -413,7 +413,7 @@ export class AgentManager {
         // Clean up tmux session if enabled
         if (getConfigService().useTmux) {
             const tmuxService = getTmuxService();
-            const sessionName = tmuxService.getSessionName(agent);
+            const sessionName = tmuxService.getSessionName(agent.sessionId);
 
             // Only use killContainerSession for actual containers (docker, cloud-hypervisor)
             // Unisolated agents run tmux on the host, not in a container
@@ -533,7 +533,7 @@ export class AgentManager {
         for (const agent of this.agents.values()) {
             // Clean up tmux session if enabled
             if (tmuxService) {
-                const sessionName = tmuxService.getSessionName(agent);
+                const sessionName = tmuxService.getSessionName(agent.sessionId);
                 // Only use killContainerSession for actual containers (docker, cloud-hypervisor)
                 if (agent.containerInfo?.id && agent.containerInfo.type !== 'unisolated') {
                     tmuxService.killContainerSession(agent.containerInfo.id, sessionName);
@@ -606,7 +606,7 @@ export class AgentManager {
                 const config = getConfigService();
                 if (config.useTmux) {
                     const tmuxService = getTmuxService();
-                    const sessionName = tmuxService.getSessionName(agent);
+                    const sessionName = tmuxService.getSessionName(agent.sessionId);
                     this.debugLog(`Killing tmux session ${sessionName} for agent ${agentId}`);
                     if (agent.containerInfo?.id && agent.containerInfo.type !== 'unisolated') {
                         tmuxService.killContainerSession(agent.containerInfo.id, sessionName);
@@ -680,7 +680,7 @@ export class AgentManager {
         if (config.useTmux && !isContainerized) {
             // Tmux mode (only for unisolated): create terminal with tmux as shell
             const tmuxService = getTmuxService();
-            const sessionName = tmuxService.getSessionName(agent);
+            const sessionName = tmuxService.getSessionName(agent.sessionId);
             const isNewSession = !tmuxService.sessionExists(sessionName);
 
             // Create VS Code terminal that creates/attaches to tmux session
@@ -835,7 +835,7 @@ export class AgentManager {
         if (config.useTmux && !isContainerized) {
             // Tmux mode (only for unisolated): create terminal with tmux
             const tmuxService = getTmuxService();
-            const sessionName = tmuxService.getSessionName(agent);
+            const sessionName = tmuxService.getSessionName(agent.sessionId);
             const isNewSession = !tmuxService.sessionExists(sessionName);
 
             this.debugLog(`focusAgent: creating tmux terminal, session=${sessionName}, isNewSession=${isNewSession}`);

@@ -141,12 +141,14 @@ export class Logger implements ILogger {
 }
 
 /**
- * Global logger instance
+ * Global logger instance (used before ServiceContainer is available)
  */
 let loggerInstance: Logger | null = null;
 
 /**
  * Initialize the global logger
+ * Note: After ServiceContainer is initialized, this is no longer needed
+ * but kept for backward compatibility during startup.
  */
 export function initLogger(extensionPath: string, minLevel: LogLevel = 'debug'): Logger {
     loggerInstance = new Logger(extensionPath, 'Extension', minLevel);
@@ -154,9 +156,23 @@ export function initLogger(extensionPath: string, minLevel: LogLevel = 'debug'):
 }
 
 /**
- * Get the global logger instance
+ * Get the global logger instance.
+ * Uses ServiceContainer's logger when available, falls back to local singleton.
  */
 export function getLogger(): Logger {
+    // Try to use ServiceContainer's logger first (it's the canonical instance)
+    try {
+        // Dynamic import to avoid circular dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return getContainer().logger as Logger;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
+
+    // Fall back to local singleton
     if (!loggerInstance) {
         throw new Error('Logger not initialized. Call initLogger first.');
     }
@@ -167,5 +183,15 @@ export function getLogger(): Logger {
  * Check if logger is initialized
  */
 export function isLoggerInitialized(): boolean {
+    // Check ServiceContainer first
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return true;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
     return loggerInstance !== null;
 }

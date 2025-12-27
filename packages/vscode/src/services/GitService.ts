@@ -165,14 +165,28 @@ export class GitService implements IGitService {
 }
 
 /**
- * Singleton instance
+ * Singleton instance (fallback when ServiceContainer not available)
  */
 let gitServiceInstance: GitService | null = null;
 
 /**
- * Get the global GitService instance
+ * Get the global GitService instance.
+ * Uses ServiceContainer's gitService when available.
  */
-export function getGitService(): GitService {
+export function getGitService(): IGitService {
+    // Try to use ServiceContainer's gitService first (it's the canonical instance)
+    try {
+        // Dynamic import to avoid circular dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return getContainer().gitService;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
+
+    // Fall back to local singleton
     if (!gitServiceInstance) {
         gitServiceInstance = new GitService();
     }

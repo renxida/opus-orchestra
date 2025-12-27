@@ -95,18 +95,81 @@ export class TmuxService {
 }
 
 /**
- * Singleton instance
+ * Singleton instance (fallback when ServiceContainer not available)
  */
 let tmuxServiceInstance: TmuxService | null = null;
 
 /**
- * Get the global TmuxService instance
+ * Interface matching core's ITmuxService (uses sessionId string instead of Agent)
  */
-export function getTmuxService(): TmuxService {
+export interface ITmuxService {
+    getSessionName(sessionId: string): string;
+    sessionExists(sessionName: string): boolean;
+    containerSessionExists(containerId: string, sessionName: string): boolean;
+    killSession(sessionName: string): void;
+    killContainerSession(containerId: string, sessionName: string): void;
+    listSessions(): string[];
+}
+
+/**
+ * Adapter that wraps TmuxService to match core's ITmuxService interface
+ */
+class TmuxServiceAdapter implements ITmuxService {
+    private wrapped: TmuxService;
+
+    constructor(wrapped: TmuxService) {
+        this.wrapped = wrapped;
+    }
+
+    getSessionName(sessionId: string): string {
+        // Create a minimal agent-like object with just sessionId
+        const mockAgent = { sessionId } as Agent;
+        return this.wrapped.getSessionName(mockAgent);
+    }
+
+    sessionExists(sessionName: string): boolean {
+        return this.wrapped.sessionExists(sessionName);
+    }
+
+    containerSessionExists(containerId: string, sessionName: string): boolean {
+        return this.wrapped.containerSessionExists(containerId, sessionName);
+    }
+
+    killSession(sessionName: string): void {
+        this.wrapped.killSession(sessionName);
+    }
+
+    killContainerSession(containerId: string, sessionName: string): void {
+        this.wrapped.killContainerSession(containerId, sessionName);
+    }
+
+    listSessions(): string[] {
+        return this.wrapped.listSessions();
+    }
+}
+
+/**
+ * Get the global TmuxService instance.
+ * Uses ServiceContainer's tmuxService when available (core interface).
+ */
+export function getTmuxService(): ITmuxService {
+    // Try to use ServiceContainer's tmuxService first (it's the canonical instance)
+    try {
+        // Dynamic import to avoid circular dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isContainerInitialized, getContainer } = require('../ServiceContainer');
+        if (isContainerInitialized()) {
+            return getContainer().tmuxService;
+        }
+    } catch {
+        // ServiceContainer not available yet
+    }
+
+    // Fall back to local singleton (wrapped to match core interface)
     if (!tmuxServiceInstance) {
         tmuxServiceInstance = new TmuxService();
     }
-    return tmuxServiceInstance;
+    return new TmuxServiceAdapter(tmuxServiceInstance);
 }
 
 /**
