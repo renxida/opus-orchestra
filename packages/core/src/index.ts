@@ -7,6 +7,7 @@
 
 // Types
 export * from './types';
+export * from './types/stateMachines';
 
 // Adapters (interfaces only)
 export * from './adapters';
@@ -19,3 +20,20 @@ export * from './managers';
 
 // Containers
 export * from './containers';
+
+// Utilities
+export * from './utils/StateMachine';
+export * from './utils/agentNames';
+export * from './utils';
+
+// Errors
+export * from './errors';
+
+/**
+ * Get the path to the bundled coordination files.
+ * These include slash commands, hooks, and scripts for agent coordination.
+ */
+export function getCoordinationPath(): string {
+  // __dirname is the dist/ folder after build, coordination is at package root
+  return `${__dirname}/../coordination`;
+}

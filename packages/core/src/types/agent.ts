@@ -41,11 +41,20 @@ export interface PersistedAgent {
   branch: string;
   worktreePath: string;
   repoPath: string;
-  taskFile: string | null;
+  taskFile?: string | null;
   /** Container config name (e.g., 'unisolated', 'repo:dev', 'user:secure') */
   containerConfigName?: string;
   /** Whether Claude has been started with this sessionId (use -r to resume if true) */
   sessionStarted?: boolean;
+}
+
+/**
+ * Todo item from Claude Code
+ */
+export interface AgentTodoItem {
+  status: 'pending' | 'in_progress' | 'completed';
+  content: string;
+  activeForm?: string;
 }
 
 /**
@@ -59,6 +68,7 @@ export interface Agent extends PersistedAgent {
   lastInteractionTime: Date;
   diffStats: DiffStats;
   containerInfo?: ContainerInfo;
+  todos: AgentTodoItem[];
 }
 
 /**
@@ -79,7 +89,7 @@ export interface AgentDisplayData {
   status: AgentStatus;
   statusIcon: string;
   branch: string;
-  taskFile: string | null;
+  taskFile?: string | null;
   pendingApproval: string | null;
   diffStats: DiffStats;
   hasTerminal: boolean;

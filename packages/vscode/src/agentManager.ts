@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import * as fs from 'fs';
 import { agentPath } from './pathUtils';
 // Use core managers and adapters via ServiceContainer
@@ -101,26 +100,20 @@ export class AgentManager {
     /**
      * Restore agents using core persistence methods.
      * This converts PersistedAgent data to runtime Agent objects.
+     *
+     * ARCHITECTURE: Worktree-only persistence - all agent data is stored
+     * in worktree metadata files (.opus-orchestra/agent.json).
+     * No central storage is used for agent data.
      */
     private restoreAgentsFromCore(repoPaths: string[]): Map<number, Agent> {
         this.debugLog(`[restoreAgents] Starting agent restoration`);
 
         const agents = new Map<number, Agent>();
 
-        // Use core persistence to scan and merge agent data
+        // ARCHITECTURE: Scan worktrees for agent metadata (source of truth)
         const worktreeAgents = this.persistence.scanWorktreesForAgents(repoPaths);
-        const storageAgents = this.persistence.loadPersistedAgents();
 
-        // Build map from worktree agents
-        const worktreeMap = new Map<string, PersistedAgent>();
-        for (const agent of worktreeAgents) {
-            worktreeMap.set(agent.worktreePath, agent);
-        }
-
-        // Merge sources (worktree takes priority)
-        const allAgents = this.persistence.mergeAgentSources(worktreeMap, storageAgents);
-
-        this.debugLog(`[restoreAgents] Found ${allAgents.size} merged agents`);
+        this.debugLog(`[restoreAgents] Found ${worktreeAgents.length} agents in worktrees`);
 
         // Log available terminals via adapter
         const allTerminals = this.terminalAdapter.getAll();
@@ -128,7 +121,7 @@ export class AgentManager {
         this.debugLog(`[restoreAgents] Available terminals: ${JSON.stringify(terminalNames)}`);
 
         // Create runtime Agent objects from persisted data
-        for (const persisted of allAgents.values()) {
+        for (const persisted of worktreeAgents) {
             // Find existing terminal by name via adapter
             const existingTerminal = this.terminalAdapter.findByName(persisted.name);
 
@@ -143,6 +136,7 @@ export class AgentManager {
                 pendingApproval: null,
                 lastInteractionTime: new Date(),
                 diffStats: { insertions: 0, deletions: 0, filesChanged: 0 },
+                todos: [],
                 containerInfo,
             };
 
@@ -174,7 +168,7 @@ export class AgentManager {
 
     private debugLog(message: string): void {
         if (isLoggerInitialized()) {
-            getLogger().child('AgentManager').debug(message);
+            getLogger().child({ component: 'AgentManager' }).debug(message);
         }
     }
 
@@ -193,6 +187,17 @@ export class AgentManager {
 
     private toWindowsPath(inputPath: string): string {
         return agentPath(inputPath).forNodeFs();
+    }
+
+    /**
+     * Join paths using forward slashes for cross-platform compatibility.
+     * Returns a path suitable for Node.js fs operations.
+     */
+    private joinPaths(...parts: string[]): string {
+        if (parts.length === 0) {
+            return '';
+        }
+        return agentPath(parts[0]).join(...parts.slice(1)).forNodeFs();
     }
 
     private execCommand(command: string, cwd: string): string {
@@ -229,7 +234,7 @@ export class AgentManager {
                 targetRepo = repoPaths[0];
             } else {
                 const picked = await vscode.window.showQuickPick(
-                    repoPaths.map(p => ({ label: path.basename(p), description: p, path: p })),
+                    repoPaths.map(p => ({ label: p.split(/[/\\]/).pop() || p, description: p, path: p })),
                     { placeHolder: 'Select repository to create agents in' }
                 );
                 if (!picked) {
@@ -309,6 +314,7 @@ export class AgentManager {
                                 pendingApproval: null,
                                 lastInteractionTime: new Date(),
                                 diffStats: { insertions: 0, deletions: 0, filesChanged: 0 },
+                                todos: [],
                                 containerConfigName: existingMetadata.containerConfigName || configName,
                                 sessionStarted: existingMetadata.sessionStarted,
                             };
@@ -341,6 +347,7 @@ export class AgentManager {
                         pendingApproval: null,
                         lastInteractionTime: new Date(),
                         diffStats: { insertions: 0, deletions: 0, filesChanged: 0 },
+                        todos: [],
                         containerConfigName: configName
                     };
 
@@ -1040,7 +1047,7 @@ export class AgentManager {
                     continue;
                 }
 
-                const fullPath = path.join(windowsWorktreePath, filePath);
+                const fullPath = this.joinPaths(windowsWorktreePath, filePath);
                 const modifiedUri = vscode.Uri.file(fullPath);
 
                 // Skip deleted files (D status) - they don't have a modified version
@@ -1107,7 +1114,7 @@ export class AgentManager {
                 });
 
                 if (selected) {
-                    const filePath = path.join(windowsWorktreePath, selected.label);
+                    const filePath = this.joinPaths(windowsWorktreePath, selected.label);
                     const uri = vscode.Uri.file(filePath);
                     try {
                         await vscode.commands.executeCommand('git.openChange', uri);
@@ -1143,7 +1150,7 @@ export class AgentManager {
         }
 
         if (this.isGitRepo()) {
-            const gitignorePath = path.join(this.workspaceRoot, '.gitignore');
+            const gitignorePath = this.joinPaths(this.workspaceRoot, '.gitignore');
             let gitignoreContent = '';
 
             if (fs.existsSync(gitignorePath)) {
@@ -1161,7 +1168,7 @@ export class AgentManager {
         try {
             this.execCommand('git init', this.workspaceRoot);
 
-            const gitignorePath = path.join(this.workspaceRoot, '.gitignore');
+            const gitignorePath = this.joinPaths(this.workspaceRoot, '.gitignore');
             let gitignoreContent = '';
 
             if (fs.existsSync(gitignorePath)) {
@@ -1219,7 +1226,7 @@ export class AgentManager {
                 targetRepo = repoPaths[0];
             } else {
                 const picked = await vscode.window.showQuickPick(
-                    repoPaths.map(p => ({ label: path.basename(p), description: p, path: p })),
+                    repoPaths.map(p => ({ label: p.split(/[/\\]/).pop() || p, description: p, path: p })),
                     { placeHolder: 'Select repository' }
                 );
                 if (!picked) {
@@ -1262,7 +1269,8 @@ export class AgentManager {
                 statusIcon: 'circle-outline',
                 pendingApproval: null,
                 lastInteractionTime: new Date(),
-                diffStats: { insertions: 0, deletions: 0, filesChanged: 0 }
+                diffStats: { insertions: 0, deletions: 0, filesChanged: 0 },
+                todos: []
             };
 
             this.agents.set(agentId, agent);
@@ -1281,12 +1289,12 @@ export class AgentManager {
 
     async initializeCoordination(repoPath: string, backlogPath?: string): Promise<{ success: boolean; message: string }> {
         const windowsRepoPath = this.toWindowsPath(repoPath);
-        const agentsDir = path.join(windowsRepoPath, '.opus-orchestra');
-        const claudeCommandsDir = path.join(windowsRepoPath, '.claude', 'commands');
-        const claudeSkillsDir = path.join(windowsRepoPath, '.claude', 'skills');
+        const agentsDir = this.joinPaths(windowsRepoPath, '.opus-orchestra');
+        const claudeCommandsDir = this.joinPaths(windowsRepoPath, '.claude', 'commands');
+        const claudeSkillsDir = this.joinPaths(windowsRepoPath, '.claude', 'skills');
 
         try {
-            fs.mkdirSync(path.join(agentsDir, 'completed'), { recursive: true });
+            fs.mkdirSync(this.joinPaths(agentsDir, 'completed'), { recursive: true });
             fs.mkdirSync(claudeCommandsDir, { recursive: true });
             fs.mkdirSync(claudeSkillsDir, { recursive: true });
 
@@ -1294,38 +1302,38 @@ export class AgentManager {
 
             if (coordinationPath) {
                 const windowsCoordPath = this.toWindowsPath(coordinationPath);
-                const scriptSrc = path.join(windowsCoordPath, 'task-claimer.sh');
-                const scriptDest = path.join(agentsDir, 'task-claimer.sh');
+                const scriptSrc = this.joinPaths(windowsCoordPath, 'task-claimer.sh');
+                const scriptDest = this.joinPaths(agentsDir, 'task-claimer.sh');
 
                 if (fs.existsSync(scriptSrc)) {
                     fs.copyFileSync(scriptSrc, scriptDest);
                     try { fs.chmodSync(scriptDest, 0o755); } catch { /* ignore */ }
                 }
 
-                const claudeMdSrc = path.join(windowsCoordPath, 'agent-CLAUDE.md');
-                const claudeMdDest = path.join(agentsDir, 'CLAUDE.md');
+                const claudeMdSrc = this.joinPaths(windowsCoordPath, 'agent-CLAUDE.md');
+                const claudeMdDest = this.joinPaths(agentsDir, 'CLAUDE.md');
                 if (fs.existsSync(claudeMdSrc)) {
                     fs.copyFileSync(claudeMdSrc, claudeMdDest);
                 }
 
-                const commandsSrcDir = path.join(windowsCoordPath, 'commands');
+                const commandsSrcDir = this.joinPaths(windowsCoordPath, 'commands');
                 if (fs.existsSync(commandsSrcDir)) {
                     const commands = fs.readdirSync(commandsSrcDir);
                     for (const cmd of commands) {
                         fs.copyFileSync(
-                            path.join(commandsSrcDir, cmd),
-                            path.join(claudeCommandsDir, cmd)
+                            this.joinPaths(commandsSrcDir, cmd),
+                            this.joinPaths(claudeCommandsDir, cmd)
                         );
                     }
                 }
 
-                const skillsSrcDir = path.join(windowsCoordPath, 'skills');
+                const skillsSrcDir = this.joinPaths(windowsCoordPath, 'skills');
                 if (fs.existsSync(skillsSrcDir)) {
                     this.copyDirRecursive(skillsSrcDir, claudeSkillsDir);
                 }
             }
 
-            const backlogDir = path.join(agentsDir, 'backlog');
+            const backlogDir = this.joinPaths(agentsDir, 'backlog');
             if (backlogPath) {
                 const windowsBacklogPath = this.toWindowsPath(backlogPath);
                 try { fs.unlinkSync(backlogDir); } catch { /* ignore */ }
@@ -1335,12 +1343,12 @@ export class AgentManager {
                 fs.mkdirSync(backlogDir, { recursive: true });
             }
 
-            const claimsFile = path.join(agentsDir, 'claims.jsonl');
+            const claimsFile = this.joinPaths(agentsDir, 'claims.jsonl');
             if (!fs.existsSync(claimsFile)) {
                 fs.writeFileSync(claimsFile, '');
             }
 
-            const gitignorePath = path.join(windowsRepoPath, '.gitignore');
+            const gitignorePath = this.joinPaths(windowsRepoPath, '.gitignore');
             let gitignoreContent = '';
             if (fs.existsSync(gitignorePath)) {
                 gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
@@ -1392,8 +1400,8 @@ export class AgentManager {
         const entries = fs.readdirSync(src, { withFileTypes: true });
 
         for (const entry of entries) {
-            const srcPath = path.join(src, entry.name);
-            const destPath = path.join(dest, entry.name);
+            const srcPath = this.joinPaths(src, entry.name);
+            const destPath = this.joinPaths(dest, entry.name);
 
             if (entry.isDirectory()) {
                 this.copyDirRecursive(srcPath, destPath);

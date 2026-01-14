@@ -14,13 +14,15 @@ export {
 export {
   AgentStatusTracker,
   IAgentStatusTracker,
+  AgentUpdateCallback,
+  PollingConfig,
+  DEFAULT_POLLING_CONFIG,
 } from './AgentStatusTracker';
 
 // AgentPersistence
 export {
   AgentPersistence,
   IAgentPersistence,
-  RepoAgentOrderMap,
 } from './AgentPersistence';
 
 // ContainerManager

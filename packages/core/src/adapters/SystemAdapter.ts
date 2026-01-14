@@ -37,6 +37,19 @@ export interface FileStat {
 }
 
 /**
+ * Spawned process interface (subset of ChildProcess)
+ * Used for long-running processes like tmux control mode
+ */
+export interface SpawnedProcess {
+  stdin: NodeJS.WritableStream | null;
+  stdout: NodeJS.ReadableStream | null;
+  stderr: NodeJS.ReadableStream | null;
+  kill(signal?: NodeJS.Signals | number): boolean;
+  on(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+  on(event: 'error', listener: (err: Error) => void): this;
+}
+
+/**
  * SystemAdapter abstracts all OS-specific operations.
  * This is the single point of platform detection and path conversion.
  */
@@ -65,6 +78,16 @@ export interface SystemAdapter {
    * Returns empty string if not applicable.
    */
   getWslDistro(): string;
+
+  /**
+   * Get a temporary directory path appropriate for the current environment.
+   * On Unix: /tmp
+   * On Windows with WSL terminal: /tmp (via WSL)
+   * On Windows native: os.tmpdir()
+   *
+   * @returns Temp directory path (in nodeFs format for file operations)
+   */
+  getTempDirectory(): string;
 
   // ========== Path Operations ==========
 
@@ -128,6 +151,16 @@ export interface SystemAdapter {
    * @param cwd - Working directory
    */
   execSilent(command: string, cwd: string): void;
+
+  /**
+   * Spawn a long-running process (for tmux control mode, etc).
+   * Automatically wraps command for correct shell (WSL, Git Bash, etc.).
+   *
+   * @param command - Command to spawn (e.g., 'tmux')
+   * @param args - Command arguments
+   * @returns An object with stdin, stdout, stderr streams, and kill/on methods
+   */
+  spawn(command: string, args: string[]): SpawnedProcess;
 
   // ========== File System ==========
 
@@ -220,4 +253,37 @@ export interface SystemAdapter {
    * @returns Modification time in milliseconds
    */
   getMtime(path: string): number;
+
+  // ========== Safe File Operations (Optional) ==========
+  // These methods provide defensive alternatives that don't throw on ENOENT.
+  // Implementations are optional for backwards compatibility.
+
+  /**
+   * Safe file read - returns null instead of throwing on ENOENT.
+   * @param path - File path
+   * @returns File contents or null if file doesn't exist
+   */
+  safeReadFile?(path: string): string | null;
+
+  /**
+   * Safe directory read - returns empty array on ENOENT.
+   * @param path - Directory path
+   * @returns Array of entry names, empty if dir doesn't exist
+   */
+  safeReadDir?(path: string): string[];
+
+  /**
+   * Safe stat - returns null instead of throwing on ENOENT.
+   * @param path - Path to stat
+   * @returns File stats or null if doesn't exist
+   */
+  safeStat?(path: string): FileStat | null;
+
+  /**
+   * Atomic write - writes to temp file, then renames.
+   * Ensures partial writes don't corrupt data.
+   * @param path - Target file path
+   * @param content - Content to write
+   */
+  atomicWrite?(path: string, content: string): void;
 }

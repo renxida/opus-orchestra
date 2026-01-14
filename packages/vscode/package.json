@@ -2,7 +2,7 @@
   "name": "opus-orchestra",
   "displayName": "Claude Agents",
   "description": "Manage multiple Claude Code agents in parallel with git worktrees",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "kyleherndon",
   "engines": {
     "vscode": "^1.85.0"
@@ -418,6 +418,7 @@
     }
   },
   "scripts": {
+    "precompile": "node ../../scripts/generate-version.js src/generated/version.ts",
     "vscode:prepublish": "npm run package",
     "package": "npm run check-types && node src/agentPanel/build.js && node esbuild.js --production",
     "compile": "tsc -p ./ && node src/agentPanel/build.js",

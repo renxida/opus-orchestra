@@ -8,7 +8,12 @@
 import { SystemAdapter } from '../adapters/SystemAdapter';
 import { ConfigAdapter } from '../adapters/ConfigAdapter';
 import { PersistedAgent, Agent } from '../types/agent';
+import { PersistedAgentSchema, safeParse, formatZodError } from '../types/schemas';
 import { ILogger } from '../services/Logger';
+import { atomicWriteJson, safeReadJson, safeStat } from '../utils/safeFs';
+// Import coordination path from index to avoid duplication
+// Note: This import is safe because getCoordinationPath has no dependencies on managers
+import { getCoordinationPath } from '../index';
 
 /**
  * Worktree manager interface
@@ -28,7 +33,7 @@ export interface IWorktreeManager {
   scanWorktreesForAgents(repoPath: string): PersistedAgent[];
   saveAgentMetadata(agent: Agent): void;
   loadAgentMetadata(worktreePath: string): PersistedAgent | null;
-  copyCoordinationFiles(agent: Agent, extensionPath: string): void;
+  copyCoordinationFiles(agent: Agent, extensionPath?: string): void;
 }
 
 /**
@@ -45,7 +50,7 @@ export class WorktreeManager implements IWorktreeManager {
   constructor(system: SystemAdapter, config: ConfigAdapter, logger?: ILogger) {
     this.system = system;
     this.config = config;
-    this.logger = logger?.child('WorktreeManager');
+    this.logger = logger?.child({ component: 'WorktreeManager' });
   }
 
   private get worktreeDir(): string {
@@ -122,6 +127,7 @@ export class WorktreeManager implements IWorktreeManager {
 
   /**
    * Scan worktrees directory for existing agents
+   * Uses safe operations to handle race conditions during scanning
    */
   scanWorktreesForAgents(repoPath: string): PersistedAgent[] {
     const agents: PersistedAgent[] = [];
@@ -147,13 +153,10 @@ export class WorktreeManager implements IWorktreeManager {
           continue;
         }
 
-        // Check if it's a directory
+        // Use safe stat - handles race condition if dir deleted during scan
         const entryPath = this.system.joinPath(worktreesDir, entry);
-        try {
-          if (!this.system.stat(entryPath).isDirectory()) {
-            continue;
-          }
-        } catch {
+        const stat = safeStat(this.system, entryPath);
+        if (!stat || !stat.isDirectory()) {
           continue;
         }
 
@@ -168,7 +171,8 @@ export class WorktreeManager implements IWorktreeManager {
         }
       }
     } catch (error) {
-      this.logger?.debug(`Failed to scan worktrees: ${error}`);
+      // Log at WARN level since this could indicate a real problem with agent discovery
+      this.logger?.warn(`Failed to scan worktrees in ${repoPath}: ${error}`);
     }
 
     return agents;
@@ -176,6 +180,7 @@ export class WorktreeManager implements IWorktreeManager {
 
   /**
    * Save agent metadata to worktree
+   * Uses atomic write to prevent corruption from partial writes
    */
   saveAgentMetadata(agent: Agent): void {
     try {
@@ -197,7 +202,8 @@ export class WorktreeManager implements IWorktreeManager {
         sessionStarted: agent.sessionStarted,
       };
 
-      this.system.writeFile(metadataFile, JSON.stringify(metadata, null, 2));
+      // Use atomic write to prevent corruption
+      atomicWriteJson(this.system, metadataFile, metadata);
       this.logger?.debug(`Saved agent metadata to ${metadataFile}`);
     } catch (error) {
       this.logger?.debug(`Failed to save agent metadata: ${error}`);
@@ -205,31 +211,44 @@ export class WorktreeManager implements IWorktreeManager {
   }
 
   /**
-   * Load agent metadata from worktree
+   * Load agent metadata from worktree.
+   * Uses Zod schema validation for robust error handling.
+   * Uses safe read to handle missing/corrupt files gracefully.
    */
   loadAgentMetadata(worktreePath: string): PersistedAgent | null {
-    try {
-      const wtFsPath = this.system.convertPath(worktreePath, 'nodeFs');
-      const metadataFile = this.system.joinPath(wtFsPath, this.METADATA_DIR, this.METADATA_FILE);
+    const wtFsPath = this.system.convertPath(worktreePath, 'nodeFs');
+    const metadataFile = this.system.joinPath(wtFsPath, this.METADATA_DIR, this.METADATA_FILE);
 
-      if (!this.system.exists(metadataFile)) {
-        return null;
-      }
-
-      const content = this.system.readFile(metadataFile);
-      const metadata = JSON.parse(content) as PersistedAgent;
-      this.logger?.debug(`Loaded agent metadata from ${metadataFile}`);
-      return metadata;
-    } catch (error) {
-      this.logger?.debug(`Failed to load agent metadata from ${worktreePath}: ${error}`);
+    // Use safe read - returns null if file doesn't exist or is invalid JSON
+    const rawData = safeReadJson<unknown>(this.system, metadataFile);
+    if (rawData === null) {
       return null;
     }
+
+    // Validate with Zod schema
+    const metadata = safeParse(
+      PersistedAgentSchema,
+      rawData,
+      (error) => {
+        this.logger?.warn(`Invalid agent metadata in ${metadataFile}: ${formatZodError(error)}`);
+      }
+    );
+
+    if (metadata === null) {
+      return null;
+    }
+
+    this.logger?.debug(`Loaded agent metadata from ${metadataFile}`);
+    return metadata;
   }
 
   /**
-   * Copy coordination files to a worktree
+   * Copy coordination files to a worktree.
+   * Uses bundled coordination files from @opus-orchestra/core by default.
+   * @param agent - The agent to copy files for
+   * @param extensionPath - Optional path to extension/package root (uses core's bundled files if not provided)
    */
-  copyCoordinationFiles(agent: Agent, extensionPath: string): void {
+  copyCoordinationFiles(agent: Agent, extensionPath?: string): void {
     const coordinationPath = this.config.get('coordinationScriptsPath');
 
     try {
@@ -242,14 +261,21 @@ export class WorktreeManager implements IWorktreeManager {
       this.system.mkdir(worktreeCommandsDir);
       this.system.mkdir(worktreeAgentsDir);
 
-      // Determine coordination source
-      const bundledCoordPath = this.system.joinPath(
-        this.system.convertPath(extensionPath, 'nodeFs'),
-        'coordination'
-      );
-      const effectiveCoordPath = coordinationPath
-        ? this.system.convertPath(coordinationPath, 'nodeFs')
-        : bundledCoordPath;
+      // Determine coordination source:
+      // 1. User-configured path (highest priority)
+      // 2. Extension-provided path (for VSCode extension backwards compat)
+      // 3. Core's bundled coordination files (default)
+      let effectiveCoordPath: string;
+      if (coordinationPath) {
+        effectiveCoordPath = this.system.convertPath(coordinationPath, 'nodeFs');
+      } else if (extensionPath) {
+        effectiveCoordPath = this.system.joinPath(
+          this.system.convertPath(extensionPath, 'nodeFs'),
+          'coordination'
+        );
+      } else {
+        effectiveCoordPath = getCoordinationPath();
+      }
 
       // Copy slash commands
       const commandsSrcDir = this.system.joinPath(effectiveCoordPath, 'commands');
@@ -338,10 +364,11 @@ export class WorktreeManager implements IWorktreeManager {
           this.system.rmdir(worktreeBacklogDir, { recursive: true });
         }
 
-        // Try symlink, fall back to copy
+        // Try symlink, fall back to copy (symlinks may fail on Windows without admin)
         try {
           this.system.symlink(backlogFsPath, worktreeBacklogDir);
-        } catch {
+        } catch (err) {
+          this.logger?.debug(`Symlink failed for backlog (falling back to copy): ${err instanceof Error ? err.message : String(err)}`);
           this.copyDirRecursive(backlogFsPath, worktreeBacklogDir);
         }
       }
@@ -357,7 +384,7 @@ export class WorktreeManager implements IWorktreeManager {
         this.system.writeFile(gitignorePath, gitignoreContent + newLine + '.opus-orchestra/\n');
       }
     } catch (error) {
-      this.logger?.error('Failed to copy coordination files', error instanceof Error ? error : undefined);
+      this.logger?.error({ err: error instanceof Error ? error : undefined }, 'Failed to copy coordination files');
     }
   }
 
@@ -375,8 +402,9 @@ export class WorktreeManager implements IWorktreeManager {
         } else {
           this.system.copyFile(srcPath, destPath);
         }
-      } catch {
-        // Skip files we can't stat
+      } catch (err) {
+        // Log at debug level - inaccessible files during copy are usually non-critical
+        this.logger?.debug(`Skipping inaccessible file during copy: ${srcPath} - ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
