@@ -55,7 +55,7 @@ export function App({ onFocusAgent }: AppProps): React.ReactElement {
   // Navigation helpers - update ID, not index
   const selectNext = useCallback(() => {
     const currentIdx = agents.findIndex((a) => a.id === selectedId);
-    if (currentIdx === -1) return; // Selected agent not found, do nothing
+    if (currentIdx === -1) {return;} // Selected agent not found, do nothing
     const nextIdx = Math.min(currentIdx + 1, agents.length - 1);
     if (agents[nextIdx]) {
       setSelectedId(agents[nextIdx].id);
@@ -64,7 +64,7 @@ export function App({ onFocusAgent }: AppProps): React.ReactElement {
 
   const selectPrev = useCallback(() => {
     const currentIdx = agents.findIndex((a) => a.id === selectedId);
-    if (currentIdx === -1) return; // Selected agent not found, do nothing
+    if (currentIdx === -1) {return;} // Selected agent not found, do nothing
     const prevIdx = Math.max(currentIdx - 1, 0);
     if (agents[prevIdx]) {
       setSelectedId(agents[prevIdx].id);
