@@ -39,11 +39,7 @@ describe('TmuxService', () => {
   }
 
   function skipIfNoTmux(): boolean {
-    if (!tmux.isTmuxAvailable()) {
-      console.log('Skipping: tmux not available');
-      return true;
-    }
-    return false;
+    return !tmux.isTmuxAvailable();
   }
 
   describe('isTmuxAvailable', () => {
@@ -111,13 +107,13 @@ describe('TmuxService', () => {
 
   describe('sessionExists', () => {
     it('returns false for non-existent session', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       expect(tmux.sessionExists('definitely-not-a-real-session-12345')).toBe(false);
     });
 
     it('returns true for existing session', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
       expect(tmux.sessionExists(testSessionName)).toBe(true);
@@ -126,7 +122,7 @@ describe('TmuxService', () => {
 
   describe('createDetachedSession', () => {
     it('creates a new detached session', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       expect(tmux.sessionExists(testSessionName)).toBe(false);
 
@@ -136,7 +132,7 @@ describe('TmuxService', () => {
     });
 
     it('is idempotent - calling multiple times does not error', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -149,7 +145,7 @@ describe('TmuxService', () => {
     });
 
     it('does not use -A flag which causes terminal issues in non-interactive contexts', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       // This is the key fix - createDetachedSession should work even when
       // called from a non-terminal context (like a Node.js script)
@@ -163,7 +159,7 @@ describe('TmuxService', () => {
 
   describe('killSession', () => {
     it('kills an existing session', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
       expect(tmux.sessionExists(testSessionName)).toBe(true);
@@ -176,7 +172,7 @@ describe('TmuxService', () => {
     });
 
     it('does not throw for non-existent session', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       expect(() => {
         tmux.killSession('definitely-not-a-real-session-12345');
@@ -186,7 +182,7 @@ describe('TmuxService', () => {
 
   describe('listSessions', () => {
     it('returns empty array when no sessions exist with prefix', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       // Use a unique prefix that definitely has no sessions
       const uniqueTmux = new TmuxService(system, `unique-prefix-${Date.now()}`);
@@ -196,7 +192,7 @@ describe('TmuxService', () => {
     });
 
     it('lists sessions with matching prefix', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -206,7 +202,7 @@ describe('TmuxService', () => {
     });
 
     it('filters sessions by prefix', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -220,7 +216,7 @@ describe('TmuxService', () => {
 
   describe('sendToSession', () => {
     it('sends text to a session without throwing', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -230,7 +226,7 @@ describe('TmuxService', () => {
     });
 
     it('throws when session does not exist', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       expect(() => {
         tmux.sendToSession('nonexistent-session-12345', 'echo "hello"');
@@ -238,7 +234,7 @@ describe('TmuxService', () => {
     });
 
     it('handles text with special characters', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -249,7 +245,7 @@ describe('TmuxService', () => {
     });
 
     it('handles text with single quotes correctly', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -260,7 +256,7 @@ describe('TmuxService', () => {
     });
 
     it('can send without pressing Enter', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 
@@ -273,7 +269,7 @@ describe('TmuxService', () => {
 
   describe('setupOoAlias', () => {
     it('sets up alias in session without throwing', function() {
-      if (skipIfNoTmux()) return;
+      if (skipIfNoTmux()) {return;}
 
       createSession(testSessionName);
 

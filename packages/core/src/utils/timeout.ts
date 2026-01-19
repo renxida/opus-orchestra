@@ -94,21 +94,20 @@ export async function withTimeout<T>(
   onProgress?.(`Starting ${operationName}...`, 0);
 
   return new Promise<TimeoutResult<T>>((resolve, reject) => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
 
     // Set up abort listener
     const abortHandler = (): void => {
       if (!settled) {
         settled = true;
-        if (timeoutId) clearTimeout(timeoutId);
+        if (timeoutId) {clearTimeout(timeoutId);}
         reject(new CancelledError(operationName));
       }
     };
     signal?.addEventListener('abort', abortHandler, { once: true });
 
     // Set up timeout
-    timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (!settled) {
         settled = true;
         signal?.removeEventListener('abort', abortHandler);

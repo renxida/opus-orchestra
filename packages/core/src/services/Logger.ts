@@ -26,6 +26,7 @@ export function createLogger(logDir: string, level: LogLevel = 'debug'): pino.Lo
   try {
     fs.mkdirSync(logDir, { recursive: true });
   } catch {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     effectiveDir = require('os').tmpdir();
   }
 

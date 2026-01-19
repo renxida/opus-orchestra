@@ -10,7 +10,6 @@ import {
     IContainerManager,
     TerminalAdapter,
     TerminalHandle,
-    CreateTerminalOptions,
 } from '@opus-orchestra/core';
 import { VSCodeTerminalAdapter } from './adapters';
 
@@ -92,7 +91,7 @@ export class AgentManager {
         return getConfigService().worktreeDirectory;
     }
 
-    setContext(context: vscode.ExtensionContext): void {
+    setContext(_context: vscode.ExtensionContext): void {
         // Container manager is now initialized via ServiceContainer
         this.agents = this.restoreAgentsFromCore(this.getRepositoryPaths());
     }
